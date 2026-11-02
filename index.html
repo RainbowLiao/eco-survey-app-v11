@@ -670,39 +670,55 @@
     }
   }
 
-  function uploadSelected() {
-    const authCode = document.getElementById("sys-auth").value.trim();
-    if(!authCode) { switchView('input'); return alert("請先在首頁填寫系統授權碼！"); }
+  async function uploadSelected() {
+      const authCode = document.getElementById("sys-auth").value.trim();
+      if(!authCode) { switchView('input'); return alert("請先在首頁填寫系統授權碼！"); }
 
-    const selectedIds = Array.from(document.querySelectorAll('.staging-checkbox:checked')).map(cb => parseInt(cb.value));
-    if (selectedIds.length === 0) return alert("請先勾選要上傳的資料！");
-    const btn = document.getElementById("btn-upload"); btn.innerText = "📤 正在上傳中，請稍候..."; btn.disabled = true;
+      const selectedIds = Array.from(document.querySelectorAll('.staging-checkbox:checked')).map(cb => parseInt(cb.value));
+      if (selectedIds.length === 0) return alert("請先勾選要上傳的資料！");
+      const btn = document.getElementById("btn-upload"); btn.innerText = "📤 正在準備上傳..."; btn.disabled = true;
 
-    const itemsToUpload = pendingRecords.filter(item => selectedIds.includes(item.id));
-    const payloads = {}; 
-    itemsToUpload.forEach(item => {
-      const sig = `${item.metadata.project}_${item.metadata.area}_${item.metadata.location}_${item.metadata.station}`;
-      if (!payloads[sig]) payloads[sig] = { action: "upload", auth: authCode, metadata: item.metadata, records: [] };
-      payloads[sig].records.push(item.record);
-    });
+      const itemsToUpload = pendingRecords.filter(item => selectedIds.includes(item.id));
+      const payloads = {}; 
+      itemsToUpload.forEach(item => {
+        const sig = `${item.metadata.project}_${item.metadata.area}_${item.metadata.location}_${item.metadata.station}`;
+        if (!payloads[sig]) payloads[sig] = { action: "upload", auth: authCode, metadata: item.metadata, records: [] };
+        payloads[sig].records.push(item.record);
+      });
 
-    let uploadPromises = Object.values(payloads).map(payload => {
-      return fetch(GAS_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) }).then(r => r.json());
-    });
+      const payloadArray = Object.values(payloads);
+      let successCount = 0;
 
-    Promise.all(uploadPromises).then(results => {
-      const authError = results.find(res => res.error || res.status === "error");
-      if (authError) { alert("❌ " + (authError.message || authError.error)); btn.innerText = "🚀 上傳選取的資料"; btn.disabled = false; return; }
+      // 🔒 核心升級：將 Promise.all (同時發射) 改為 for 迴圈 (依序排隊發射)
+      for (let i = 0; i < payloadArray.length; i++) {
+        btn.innerText = `📤 正在上傳樣區 (${i + 1}/${payloadArray.length})...`;
+        try {
+          const res = await fetch(GAS_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payloadArray[i]) });
+          const data = await res.json();
+        
+          if (data.error || data.status === "error") {
+            alert(`❌ 樣區 ${i+1} 上傳失敗：` + (data.message || data.error));
+            break; // 發生錯誤即中斷，保護後續資料不遺失
+          }
+          successCount++;
+        } catch(e) {
+          alert(`❌ 樣區 ${i+1} 連線失敗，請確認網路狀態！`);
+          break; // 斷網即中斷
+        }
+      }
 
-      pendingRecords = pendingRecords.filter(item => !selectedIds.includes(item.id));
-      localStorage.setItem("pendingRecords", JSON.stringify(pendingRecords));
-      currentSessionRecords = currentSessionRecords.filter(item => !selectedIds.includes(item.id));
-      
-      alert("✅ 選取的資料已成功上傳至 Google Sheets！");
+      // 只有確實上傳成功的資料，才會從暫存區刪除
+      if (successCount === payloadArray.length) {
+        pendingRecords = pendingRecords.filter(item => !selectedIds.includes(item.id));
+        localStorage.setItem("pendingRecords", JSON.stringify(pendingRecords));
+        currentSessionRecords = currentSessionRecords.filter(item => !selectedIds.includes(item.id));
+        alert("✅ 選取的資料已成功依序上傳至 Google Sheets！");
+      } else {
+        alert("⚠️ 上傳流程中斷，尚未成功的資料已為您保留在暫存區。");
+      }
+
       renderStaging(); updateStagingBadge(); renderCurrentSession();
       btn.innerText = "🚀 上傳選取的資料"; btn.disabled = false;
-    }).catch(e => {
-      alert("❌ 上傳失敗，請確認網路有訊號後再試一次！"); btn.innerText = "🚀 上傳選取的資料"; btn.disabled = false;
     });
   }
 </script>
