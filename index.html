@@ -406,7 +406,12 @@
     const listEl = document.getElementById("staging-list"); listEl.innerHTML = "";
     if (pendingRecords.length === 0) { listEl.innerHTML = "<div style='text-align:center; padding: 40px; color:#888;'>暫存區沒有資料</div>"; return; }
     const groups = {};
-    pendingRecords.forEach(item => { const key = `${item.metadata.location || '未填寫地點'} ${item.metadata.station ? '- ' + item.metadata.station : ''}`; if (!groups[key]) groups[key] = []; groups[key].push(item); });
+    pendingRecords.forEach(item => { 
+      // 🌟 將案件與工區加入分組標題中，方便檢視
+      const key = `[${item.metadata.project || '未命名案件'}] ${item.metadata.area || '未分類工區'} - ${item.metadata.location || '未填寫地點'} ${item.metadata.station ? '(' + item.metadata.station + ')' : ''}`; 
+      if (!groups[key]) groups[key] = []; 
+      groups[key].push(item); 
+    });
     for (let key in groups) {
       let groupHtml = `<div class="staging-group"><div class="staging-header">${key}</div>`;
       groups[key].forEach(item => {
@@ -429,48 +434,36 @@
   }
 
   // 🔒 依序排隊上傳機制，保護 GAS 不被併發塞爆
+  // 🌟 將資料一次打包成一包發送，不再切成多個包裹
   async function uploadSelected() {
     const authCode = document.getElementById("sys-auth").value.trim();
     if(!authCode) { switchView('input'); return alert("請先在首頁填寫系統授權碼！"); }
 
     const selectedIds = Array.from(document.querySelectorAll('.staging-checkbox:checked')).map(cb => parseInt(cb.value));
     if (selectedIds.length === 0) return alert("請先勾選要上傳的資料！");
-    const btn = document.getElementById("btn-upload"); btn.innerText = "📤 正在準備上傳..."; btn.disabled = true;
+    const btn = document.getElementById("btn-upload"); btn.innerText = "📤 正在合併寫入並打包備份..."; btn.disabled = true;
 
     const itemsToUpload = pendingRecords.filter(item => selectedIds.includes(item.id));
-    const payloads = {}; 
-    itemsToUpload.forEach(item => {
-      const sig = `${item.metadata.project}_${item.metadata.area}_${item.metadata.location}_${item.metadata.station}`;
-      if (!payloads[sig]) payloads[sig] = { action: "upload", auth: authCode, metadata: item.metadata, records: [] };
-      payloads[sig].records.push(item.record);
-    });
+    const payload = { action: "upload", auth: authCode, items: itemsToUpload }; 
 
-    const payloadArray = Object.values(payloads);
-    let successCount = 0;
-
-    for (let i = 0; i < payloadArray.length; i++) {
-      btn.innerText = `📤 正在上傳樣區 (${i + 1}/${payloadArray.length})...`;
-      try {
-        const res = await fetch(GAS_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payloadArray[i]) });
-        const data = await res.json();
-        if (data.error || data.status === "error") { alert(`❌ 樣區 ${i+1} 上傳失敗：` + (data.message || data.error)); break; }
-        successCount++;
-      } catch(e) {
-        alert(`❌ 樣區 ${i+1} 連線失敗，請確認網路狀態！`); break; 
+    try {
+      const res = await fetch(GAS_URL, { method: "POST", redirect: "follow", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(payload) });
+      const data = await res.json();
+      
+      if (data.error || data.status === "error") { 
+        alert(`❌ 上傳失敗：` + (data.message || data.error)); 
+      } else {
+        pendingRecords = pendingRecords.filter(item => !selectedIds.includes(item.id));
+        localStorage.setItem("pendingRecords", JSON.stringify(pendingRecords));
+        currentSessionRecords = currentSessionRecords.filter(item => !selectedIds.includes(item.id));
+        alert("✅ 選取的資料已成功合併寫入，並寄送了一封統整 CSV 備份信件！");
       }
-    }
-
-    if (successCount === payloadArray.length) {
-      pendingRecords = pendingRecords.filter(item => !selectedIds.includes(item.id));
-      localStorage.setItem("pendingRecords", JSON.stringify(pendingRecords));
-      currentSessionRecords = currentSessionRecords.filter(item => !selectedIds.includes(item.id));
-      alert("✅ 選取的資料已成功依序上傳至 Google Sheets！");
-    } else {
-      alert("⚠️ 上傳流程中斷，尚未成功的資料已為您保留在暫存區。");
+    } catch(e) {
+      alert(`❌ 連線失敗，請確認網路狀態！`); 
     }
 
     renderStaging(); updateStagingBadge(); renderCurrentSession();
-    btn.innerText = "🚀 依序排隊上傳資料"; btn.disabled = false;
+    btn.innerText = "🚀 批次上傳選取資料"; btn.disabled = false;
   }
 </script>
 </body>
