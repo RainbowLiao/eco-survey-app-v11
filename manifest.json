@@ -1,6 +1,6 @@
 {
-  "name": "生態調查資料輸入",
-  "short_name": "生態調查_v11",
+  "name": "動物調查app_v11",
+  "short_name": "動物調查_v11",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#ffffff",
