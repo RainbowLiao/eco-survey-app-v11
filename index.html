@@ -383,7 +383,6 @@
     if (!editingRecordId && !hasRepCoord && (!tempLat || !tempLng)) {
       return alert("⚠️ 本樣站尚未建立代表點位！\n第一筆紀錄必須帶有座標，請等待 GPS 定位或點擊「展開全螢幕地圖」手動點選位置。");
     }
-
     let wgs_x = "", wgs_y = "", twd_x = "", twd_y = "";
     if (tempLat && tempLng) { const twd97 = proj4("EPSG:4326", "EPSG:3826", [tempLng, tempLat]); wgs_x = tempLng.toFixed(6); wgs_y = tempLat.toFixed(6); twd_x = twd97[0].toFixed(2); twd_y = twd97[1].toFixed(2); }
     if (editingRecordId) {
